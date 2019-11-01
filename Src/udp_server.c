@@ -46,6 +46,8 @@ extern unsigned char discrInp[DiscreteInputsLimit];
 
 extern uint8_t modbus_di_array[DiscreteInputsLimit/8];	// массив для упаковки состояния дискретных входов в байты
 
+extern uint8_t call_flag;
+
 // флаги для ответа на команды загрузчика
 static uint8_t boot_ack = 0;
 static uint8_t boot_id = 0;
@@ -311,7 +313,8 @@ void udp_server_receive_callback(void *arg, struct udp_pcb *upcb, struct pbuf *p
 		  case 0x02:	// запрос аудио дааных у шлюза диспетчером в режиме прослушивания
 			  answer[0] = data[0];	// id high
 			  answer[1] = data[1];	// id low
-			  answer[2] = 0x02;		// cmd
+			  if(call_flag) answer[2] = 0x82;		// cmd
+			  else answer[2] = 0x02;				// cmd
 
 			  destination_group = data[3];
 			  destination_point = data[4];

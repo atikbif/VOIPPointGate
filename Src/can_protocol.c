@@ -14,7 +14,11 @@
 #include "frame_stack.h"
 #include "main.h"
 #include "can_tx_stack.h"
+#include "eeprom.h"
 
+extern uint16_t VirtAddVarTab[NB_OF_VAR];
+
+extern unsigned short holdReg[HoldingRegistersLimit];
 extern unsigned char discrInp[DiscreteInputsLimit];
 extern unsigned short inpReg[InputRegistersLimit];
 extern uint16_t group_tmr[GROUP_CNT];
@@ -24,6 +28,8 @@ extern uint8_t destination_group;	// активный номер группы для передачи аудио от
 extern uint8_t destination_point;	// активный номер точки для передачи аудио от ПК к точке (получен в запросе по ethernet)
 uint8_t rx_group = 0;	// активный номер группы для передачи аудио от точки к ПК (получен в запросе по can)
 uint8_t rx_point = 0;	// активный номер точки для передачи аудио от точки к ПК (получен в запросе по can)
+
+extern uint16_t	supposed_point_cnt;
 
 static CAN_TxHeaderTypeDef   TxHeader;
 static uint32_t              TxMailbox1=0;
@@ -52,6 +58,10 @@ uint8_t prev_p_cnt=0;
 
 uint8_t wr_stack_flag = 0;	// флаг незавершённой операции записи в стэк
 uint16_t can_tmr = 0;	// таймер для проверки что к шлюзу не подключена ни одна точка
+
+uint8_t call_flag = 0;
+uint16_t call_tmr = 0;
+
 
 extern CAN_HandleTypeDef hcan1;
 extern CAN_HandleTypeDef hcan2;
@@ -166,7 +176,7 @@ static uint8_t compare_id(id_field *input_id, id_field *cur_id) {
 		}
 		return 1;
 	}
-	if(input_id->type==POINT_TO_ALL) { // точка все
+	if(input_id->type==POINT_TO_ALL || input_id->type==POINT_CALL) { // точка все
 		if(cur_id->type==UNKNOWN_TYPE) {	// пакеты не захвачены
 			*cur_id = *input_id;
 			return 1;
@@ -224,11 +234,15 @@ void check_can_rx(uint8_t can_num) {
 				if(check_id_priority(RxHeader.ExtId))
 				{
 					packet_tmr = 0;
+					if(p_id->type==POINT_CALL) {
+						call_flag=1;
+						call_tmr=0;
+					}
 					cur_num = p_id->param & 0x0F;
 					cnt = (p_id->param & 0xFF)>> 4;
 					if(cur_num) {
 						if(cur_num==cnt) {
-						  if(p_id->type==POINT_TO_ALL || p_id->type==POINT_TO_PC) { // точка все
+						  if(p_id->type==POINT_TO_ALL || p_id->type==POINT_TO_PC || p_id->type==POINT_CALL) { // точка все
 							  j = (cur_num-1)*8;
 							  for(i=0;i<RxHeader.DLC;i++) {
 								  if(j+i<OPUS_PACKET_MAX_LENGTH) can_priority_frame[j+i]=RxData[i];
@@ -249,18 +263,19 @@ void check_can_rx(uint8_t can_num) {
 					}
 				}
 			}else if(p_id->cmd==POINT_STATE) {
-				if(p_id->point_addr>0 && p_id->point_addr<=100) {
+				if(p_id->point_addr>0 && p_id->point_addr<=64) {
 					if(p_id->group_addr==current_group) {
-						discrInp[16+(p_id->point_addr-1)*10] = RxData[0]&0x01;		// исправность микрофона/динамика
-						discrInp[16+(p_id->point_addr-1)*10+1] = RxData[1]&0x01;	// di1
-						discrInp[16+(p_id->point_addr-1)*10+2] = RxData[1]&0x02;	// обрыв
-						discrInp[16+(p_id->point_addr-1)*10+3] = RxData[1]&0x04;	// кз
-						discrInp[16+(p_id->point_addr-1)*10+4] = RxData[1]&0x08;	// di2
-						discrInp[16+(p_id->point_addr-1)*10+5] = RxData[1]&0x10;	// обрыв
-						discrInp[16+(p_id->point_addr-1)*10+6] = RxData[1]&0x20;	// кз
-						discrInp[16+(p_id->point_addr-1)*10+7] = RxData[1]&0x40;		// do1
-						discrInp[16+(p_id->point_addr-1)*10+8] = RxData[1]&0x80;		// do2
-						discrInp[16+(p_id->point_addr-1)*10+9] = RxData[0]&0x02;		// проверка испрвн динамиков
+						discrInp[16+(p_id->point_addr-1)*11] = RxData[0]&0x01;		// исправность микрофона/динамика
+						discrInp[16+(p_id->point_addr-1)*11+1] = RxData[1]&0x01;	// di1
+						discrInp[16+(p_id->point_addr-1)*11+2] = RxData[1]&0x02;	// обрыв
+						discrInp[16+(p_id->point_addr-1)*11+3] = RxData[1]&0x04;	// кз
+						discrInp[16+(p_id->point_addr-1)*11+4] = RxData[1]&0x08;	// di2
+						discrInp[16+(p_id->point_addr-1)*11+5] = RxData[1]&0x10;	// обрыв
+						discrInp[16+(p_id->point_addr-1)*11+6] = RxData[1]&0x20;	// кз
+						discrInp[16+(p_id->point_addr-1)*11+7] = RxData[1]&0x40;		// do1
+						discrInp[16+(p_id->point_addr-1)*11+8] = RxData[1]&0x80;		// do2
+						discrInp[16+(p_id->point_addr-1)*11+9] = RxData[0]&0x02;		// проверка испрвн динамиков
+						discrInp[16+(p_id->point_addr-1)*11+10] = RxData[0]&0x04;		// концевик
 						inpReg[16+(p_id->point_addr-1)] = (((uint16_t)RxData[2])<<8) | RxData[3];
 					}
 					point.battery = RxData[2];
@@ -272,8 +287,17 @@ void check_can_rx(uint8_t can_num) {
 					point.gain = RxData[5];
 					add_point_data(&point);
 				}
-			}else if(p_id->cmd==LAST_POINT) {
-				p_cnt = inpReg[0] = p_id->point_addr;
+			}else if(p_id->cmd==LAST_POINT && p_id->point_addr<=64 && p_id->point_addr>0) {
+				if(p_id->type == BREAK_FINISH) {
+					p_cnt = p_id->point_addr;
+				}else if(p_id->type == NORMAL_FINISH) {
+					if(p_id->point_addr != supposed_point_cnt) {
+						holdReg[12] = supposed_point_cnt = p_id->point_addr;
+						EE_WriteVariable(VirtAddVarTab[13],  supposed_point_cnt);
+					}
+					p_cnt = p_id->point_addr;
+				}
+				inpReg[0] = p_cnt;
 				if(prev_p_cnt!=p_cnt) send_get_state();
 				prev_p_cnt = p_cnt;
 				if(p_id->group_addr==current_group) can_tmr = 0;

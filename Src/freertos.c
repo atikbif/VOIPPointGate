@@ -71,9 +71,8 @@
 uint8_t		gate_state = START_STATE;
 uint16_t	gate_tmr = 0;
 uint16_t	sec_cnt = 0;
-uint16_t	point_cnt = 2;
+uint16_t	supposed_point_cnt = 1;
 static uint16_t	i = 0;
-static uint8_t	relay2_test = 0;
 static uint8_t	audio_test = 0;
 
 static uint16_t err_dec = 0;
@@ -95,6 +94,12 @@ extern uint16_t can_tmr;
 
 extern uint8_t p_cnt;
 extern uint8_t current_group;
+
+extern uint8_t call_flag;
+extern uint16_t call_tmr;
+
+uint8_t voip_out1 = 0;
+uint8_t voip_out2 = 0;
 
 /* USER CODE END Variables */
 osThreadId defaultTaskHandle;
@@ -218,6 +223,9 @@ void StartDefaultTask(void const * argument)
   for(;;)
   {
     osDelay(100);
+    if(call_tmr<10) call_tmr++;else {
+    	call_flag=0;
+    }
     for(j=0;j<GROUP_CNT;j++){
     	if(groups[j].num) {
     		if(group_tmr[j]<50) group_tmr[j]++;else {
@@ -226,7 +234,7 @@ void StartDefaultTask(void const * argument)
 					group.num = j+1;
 					group.point_cnt=0;
 					group.version=0;
-					group.bits=(uint16_t)1<<11;
+					group.bits=(uint16_t)1<<13;
 					add_group_data(j,&group);
 				}
 			}
@@ -273,6 +281,8 @@ void StartDefaultTask(void const * argument)
     if(HAL_GPIO_ReadPin(RELAY2_GPIO_Port,RELAY2_Pin)==GPIO_PIN_SET) {
     	discrInp[10]=1;group.bits |= ((uint16_t)1<<10);
     }else discrInp[10]=0;
+    if(voip_out1) group.bits |= ((uint16_t)1<<11);
+    if(voip_out2) group.bits |= ((uint16_t)1<<12);
 
     group.num = current_group;
 	group.point_cnt=p_cnt;
@@ -282,14 +292,6 @@ void StartDefaultTask(void const * argument)
 	group_bits = group.bits;
 
     // manage relay 2
-    relay2_test = 1;
-    if(inpReg[0]>=point_cnt) {
-    	for(i=0;i<point_cnt;++i) {
-    		if(discrInp[16+i*10+1]==0) {relay2_test = 0;break;}
-    	}
-    }else relay2_test = 0;
-    if(relay2_test) {HAL_GPIO_WritePin(RELAY2_GPIO_Port,RELAY2_Pin,GPIO_PIN_SET);}
-    else HAL_GPIO_WritePin(RELAY2_GPIO_Port,RELAY2_Pin,GPIO_PIN_RESET);
 
     gate_tmr++;
     if(gate_tmr>=10) {
@@ -299,13 +301,26 @@ void StartDefaultTask(void const * argument)
 
     // формирование выхода DAC при некорректном числе подключенных точек
     err_num = 0;
-    if(inpReg[0]>=point_cnt) {
-		for(i=0;i<point_cnt;++i) {
-			if(discrInp[16+i*10+1]==0) {err_num = i;break;}
+    if(inpReg[0]>=supposed_point_cnt) {
+		for(i=0;i<supposed_point_cnt;++i) {
+
+			if(discrInp[16+i*11+1]==0) {err_num = i+1;break;}
+			//if(discrInp[16+i*11+9] && (discrInp[16+i*11]==0)) {err_num = i+1;break;}
 		}
 	}else {
-		if(inpReg[0]) err_num = inpReg[0];else err_num=99;
+		if(inpReg[0]) err_num = inpReg[0]+1;
+		for(i=0;i<inpReg[0];++i) {
+			if(discrInp[16+i*11+1]==0) {err_num = i+1;break;}
+			//if(discrInp[16+i*11+9] && (discrInp[16+i*11]==0)) {err_num = i+1;break;}
+		}
 	}
+
+    can_tmr++;
+	if(can_tmr>=30) {
+		inpReg[0] = 0;
+		p_cnt=0;
+	}
+
     if(err_num) {
     	err_dec = err_num/10;
     	err_point = err_num%10;
@@ -313,16 +328,24 @@ void StartDefaultTask(void const * argument)
     	err_dec = 0;
     	err_point = 0;
     }
-    can_tmr++;
-    if(can_tmr>=30) {
-    	err_dec = 9;
-    	err_point = 9;
-    	inpReg[0] = 0;
-    	p_cnt=0;
+
+
+    if(inpReg[0]) {
+    	if(err_num) {
+    		TIM1->CCR3=7944+((39718-7944)/9)*err_dec;
+			TIM1->CCR2=7944+((39718-7944)/9)*err_point;
+    	}else {
+    		TIM1->CCR2=7944;
+			TIM1->CCR3=7944;
+    	}
+    }else {
+    	// 0.3 В
+    	TIM1->CCR2=5958;
+		TIM1->CCR3=5958;
     }
 
-    TIM1->CCR2=(65535/9)*err_dec;
-    TIM1->CCR3=(65535/9)*err_point;
+    if(inpReg[0] && err_num==0) HAL_GPIO_WritePin(RELAY2_GPIO_Port,RELAY2_Pin,GPIO_PIN_SET);
+	else HAL_GPIO_WritePin(RELAY2_GPIO_Port,RELAY2_Pin,GPIO_PIN_RESET);
 
     // алгоритм управления выходами шлюза и точек
     switch(gate_state) {
@@ -330,6 +353,8 @@ void StartDefaultTask(void const * argument)
 			if(gate_tmr==0) {	// выключить реле на всех громкоговорителях
 				manage_all_relays(1,0);
 				manage_all_relays(2,0);
+				voip_out1 = 0;
+				voip_out2 = 0;
 				gate_state = CHECK_DI1;
 			}
 			HAL_GPIO_WritePin(RELAY1_GPIO_Port,RELAY1_Pin,GPIO_PIN_RESET);
@@ -348,6 +373,7 @@ void StartDefaultTask(void const * argument)
 				send_scan_cmd_from_gate();
 				gate_tmr = 0;sec_cnt = 0;
 				manage_all_relays(2,1);
+				voip_out2=1;
 				gate_state = CHECK_AUDIO;
 			}else gate_state = START_STATE;
 			break;
@@ -355,7 +381,7 @@ void StartDefaultTask(void const * argument)
 			if(gate_tmr==0) send_scan_cmd_from_gate();
 			if(sec_cnt>=2) {
 				audio_test = 1;
-				for(i=0;i<point_cnt;i++) {
+				for(i=0;i<supposed_point_cnt;i++) {
 					if(discrInp[16+i*10]==0) {audio_test = 0; break;}
 				}
 				if(audio_test) gate_state = CHECK_DI3;
@@ -381,6 +407,8 @@ void StartDefaultTask(void const * argument)
 		case CHECK_DI1_2:
 			if(discrInp[0]) {
 				HAL_GPIO_WritePin(RELAY1_GPIO_Port,RELAY1_Pin,GPIO_PIN_RESET);
+				voip_out1=1;
+				voip_out2=0;
 				manage_all_relays(2,0);
 				manage_all_relays(1,1);
 				gate_state = CHECK_DI3;
