@@ -28,6 +28,9 @@
 
 #include "uart.h"
 #include "button_led.h"
+#include "audio_out.h"
+#include "can_protocol.h"
+#include "frame_stack.h"
 
 /* USER CODE END Includes */
 
@@ -55,6 +58,11 @@ extern uint16_t rx1_cnt;
 extern uint16_t rx1_tmr;
 
 uint8_t dir_tmr = 0;
+uint8_t opus_tmr = 0;
+
+extern uint8_t rx_group;
+extern uint8_t rx_point;
+extern uint8_t current_group;
 
 /* USER CODE END PV */
 
@@ -222,8 +230,21 @@ void CAN1_RX0_IRQHandler(void)
 void TIM2_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM2_IRQn 0 */
-
-
+  static uint8_t opus_data[64];
+  uint8_t opus_length = 0;
+  opus_tmr++;
+  if(opus_tmr>=20) {
+	  opus_tmr=0;
+	  if(is_sentence_ready_to_speak()) {
+		  opus_length = get_opus_packet(opus_data);
+		  if(opus_length) {
+			  send_alarm_packet(opus_length,opus_data);
+			  add_can_frame(opus_data,opus_length);
+			  rx_group = current_group;
+			  rx_point = 0;
+		  }
+	  }
+  }
   if(rx1_cnt) {rx1_tmr++;}else rx1_tmr=0;
   if(dir_tmr) {
 	  dir_tmr--;

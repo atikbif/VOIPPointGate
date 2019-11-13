@@ -40,5 +40,6 @@ void divide_to_packets_and_send_to_can(uint8_t dest_group, uint8_t dest_point, u
 void check_can_rx(uint8_t can_num);
 void can_write_from_stack();
 void divide_to_packets_and_send_to_can(uint8_t dest_group, uint8_t dest_point, uint8_t len, uint8_t *ptr);
+void send_alarm_packet(uint8_t len, uint8_t *ptr);
 
 #endif /* CAN_PROTOCOL_H_ */

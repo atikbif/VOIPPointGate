@@ -40,16 +40,16 @@ void button_init(void) {
 void set_first_led(unsigned char color) {
 	switch(color) {
 		case OFF:
-			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_RESET);
 			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_7, GPIO_PIN_RESET);
 			break;
 		case GREEN:
-			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_SET);
-			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_7, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_7, GPIO_PIN_SET);
+			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_RESET);
 			break;
 		case RED:
-			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_RESET);
-			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_7, GPIO_PIN_SET);
+			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_7, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET);
 			break;
 	}
 }
@@ -57,12 +57,12 @@ void set_first_led(unsigned char color) {
 void toggle_first_led(unsigned char color) {
 	switch(color) {
 		case GREEN:
-			HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_8);
-			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_7, GPIO_PIN_RESET);
+			HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_7);
+			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_RESET);
 			break;
 		case RED:
-			HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_7);
-			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_RESET);
+			HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_6);
+			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_7, GPIO_PIN_RESET);
 			break;
 	}
 }
@@ -70,15 +70,15 @@ void toggle_first_led(unsigned char color) {
 void set_second_led(unsigned char color) {
 	switch(color) {
 		case OFF:
-			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_RESET);
 			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9, GPIO_PIN_RESET);
 			break;
 		case GREEN:
-			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET);
+			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_SET);
 			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9, GPIO_PIN_RESET);
 			break;
 		case RED:
-			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_RESET);
 			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9, GPIO_PIN_SET);
 			break;
 	}
@@ -87,12 +87,12 @@ void set_second_led(unsigned char color) {
 void toggle_second_led(unsigned char color) {
 	switch(color) {
 		case GREEN:
-			HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_6);
+			HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_8);
 			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9, GPIO_PIN_RESET);
 			break;
 		case RED:
 			HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_9);
-			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_RESET);
 			break;
 	}
 }

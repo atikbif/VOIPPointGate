@@ -15,6 +15,7 @@
 #include "main.h"
 #include "can_tx_stack.h"
 #include "eeprom.h"
+#include "audio_out.h"
 
 extern uint16_t VirtAddVarTab[NB_OF_VAR];
 
@@ -62,6 +63,8 @@ uint16_t can_tmr = 0;	// таймер для проверки что к шлюзу не подключена ни одна т
 uint8_t call_flag = 0;
 uint16_t call_tmr = 0;
 
+extern uint16_t alarm_id;
+
 
 extern CAN_HandleTypeDef hcan1;
 extern CAN_HandleTypeDef hcan2;
@@ -76,6 +79,49 @@ static uint8_t inline is_cmd_through_up(uint8_t cmd) {
 static uint8_t inline is_cmd_through_down(uint8_t cmd, uint8_t param) {
 	if(cmd == AUDIO_PACKET  || ((cmd==SCAN_GROUP) && param) || cmd==BOOT || cmd==POINT_CONFIG) return 1;
 	return 0;
+}
+
+void send_alarm_packet(uint8_t len, uint8_t *ptr) {
+	uint8_t i=len;
+	uint8_t cur_pckt = 1;
+	uint8_t pckt_cnt = 0;
+	tx_stack_data packet;
+	id_field *p_id = (id_field*)(&packet.id);
+
+	wr_stack_flag = 1;
+
+	while(i) {
+		pckt_cnt++;
+		if(i<=8) {i=0;break;}
+		i-=8;
+	}
+	i=1;
+	while(cur_pckt<=pckt_cnt) {
+		p_id->point_addr = 0x7F;
+		p_id->group_addr = current_group;
+		p_id->type = AUDIO_INFO;
+
+		p_id->cmd = AUDIO_PACKET;
+		p_id->param = (cur_pckt&0x0F)|((pckt_cnt&0x0F)<<4);
+		packet.priority = LOW_PACKET_PRIORITY;
+		if(cur_pckt==pckt_cnt) { // last packet
+			packet.length = len;
+			for(i=0;i<len;i++) packet.data[i] = ptr[(cur_pckt-1)*8+i];
+			add_tx_can_packet(&can1_tx_stack,&packet);
+			add_tx_can_packet(&can2_tx_stack,&packet);
+			//toggle_first_led(GREEN);
+			cur_pckt++;
+			len=0;
+		}else {
+			packet.length = 8;
+			for(i=0;i<8;i++) packet.data[i] = ptr[(cur_pckt-1)*8+i];
+			add_tx_can_packet(&can1_tx_stack,&packet);
+			add_tx_can_packet(&can2_tx_stack,&packet);
+			cur_pckt++;
+			len-=8;
+		}
+	}
+	wr_stack_flag = 0;
 }
 
 // разбиение пакета на can посылки
@@ -101,7 +147,7 @@ void divide_to_packets_and_send_to_can(uint8_t dest_group, uint8_t dest_point, u
 		else if(dest_point==0x00) {p_id->type = PC_TO_GROUP;p_id->point_addr = 0;}
 		else p_id->type = PC_TO_POINT;
 
-		p_id->cmd = 1;
+		p_id->cmd = AUDIO_PACKET;
 		p_id->param = (cur_pckt&0x0F)|((pckt_cnt&0x0F)<<4);
 		packet.priority = LOW_PACKET_PRIORITY;
 		if(cur_pckt==pckt_cnt) { // last packet
@@ -158,6 +204,12 @@ void can_write_from_stack() {
 }
 
 static uint8_t compare_id(id_field *input_id, id_field *cur_id) {
+	if(input_id->type==AUDIO_INFO) {
+		if(cur_id->type!=AUDIO_INFO || ((cur_id->type==AUDIO_INFO) && (input_id->group_addr==cur_id->group_addr))) {
+			*cur_id = *input_id;
+			return 1;
+		}
+	}
 	if(input_id->type==POINT_TO_PC) {
 		if(cur_id->type==UNKNOWN_TYPE) {	// пакеты не захвачены
 			*cur_id = *input_id;
@@ -200,6 +252,7 @@ static uint8_t compare_id(id_field *input_id, id_field *cur_id) {
 uint8_t static check_id_priority(uint32_t packet_id) {
 	id_field *input_id = (id_field*)(&packet_id);
 	id_field *cur_id = (id_field*)(&can_caught_id);
+	if(is_sentence_ready_to_speak()) return 0;
 	if(cur_mode == MODE_PC_TO_ALL) {
 		return compare_id(input_id, cur_id);
 	}else if(cur_mode == MODE_PC_TO_GROUP) {
@@ -207,6 +260,9 @@ uint8_t static check_id_priority(uint32_t packet_id) {
 			return compare_id(input_id, cur_id);
 		}
 	}else {
+		if(input_id->cmd==AUDIO_PACKET && input_id->type==AUDIO_INFO) {
+			return compare_id(input_id, cur_id);
+		}
 		if(input_id->group_addr == destination_group && input_id->point_addr == destination_point) {
 			return compare_id(input_id, cur_id);
 		}
@@ -227,6 +283,13 @@ void check_can_rx(uint8_t can_num) {
 	if(can_num==1) hcan = &hcan1; else hcan = &hcan2;
 	if(HAL_CAN_GetRxFifoFillLevel(hcan, CAN_RX_FIFO0)) {
 		if(HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK) {
+			if(alarm_id) {
+				if(can_num==2) toggle_second_led(RED);
+				else toggle_first_led(RED);
+			}else {
+				if(can_num==2) toggle_second_led(GREEN);
+				else toggle_first_led(GREEN);
+			}
 
 			p_id = (id_field*)(&(RxHeader.ExtId));
 			if(p_id->group_addr==0) return;
@@ -242,7 +305,7 @@ void check_can_rx(uint8_t can_num) {
 					cnt = (p_id->param & 0xFF)>> 4;
 					if(cur_num) {
 						if(cur_num==cnt) {
-						  if(p_id->type==POINT_TO_ALL || p_id->type==POINT_TO_PC || p_id->type==POINT_CALL) { // точка все
+						  if(p_id->type==POINT_TO_ALL || p_id->type==POINT_TO_PC || p_id->type==POINT_CALL || p_id->type==AUDIO_INFO) { // точка все
 							  j = (cur_num-1)*8;
 							  for(i=0;i<RxHeader.DLC;i++) {
 								  if(j+i<OPUS_PACKET_MAX_LENGTH) can_priority_frame[j+i]=RxData[i];

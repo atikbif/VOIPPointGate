@@ -33,6 +33,8 @@
 #include "modbus.h"
 #include "can_cmd.h"
 #include "dyn_data.h"
+#include "can_protocol.h"
+#include "audio_out.h"
 
 /* USER CODE END Includes */
 
@@ -75,9 +77,8 @@ uint16_t	supposed_point_cnt = 1;
 static uint16_t	i = 0;
 static uint8_t	audio_test = 0;
 
-static uint16_t err_dec = 0;
+//static uint16_t err_dec = 0;
 static uint16_t err_point = 0;
-static uint16_t err_num = 0;
 
 extern uint16_t adc_data[3];
 
@@ -100,6 +101,9 @@ extern uint16_t call_tmr;
 
 uint8_t voip_out1 = 0;
 uint8_t voip_out2 = 0;
+
+uint16_t alarm_id = 0;
+static uint16_t prev_alarm_id = 0;
 
 /* USER CODE END Variables */
 osThreadId defaultTaskHandle;
@@ -211,6 +215,9 @@ void StartDefaultTask(void const * argument)
   struct group_data group;
 
   uint16_t j=0;
+  uint8_t prev_di2=0;
+  uint8_t alarm_enable = 0;
+  uint8_t check_audio_state = 0;
 
   led_init();
   udp_server_init();
@@ -219,6 +226,8 @@ void StartDefaultTask(void const * argument)
   get_points_state();
   osDelay(500);
   get_points_state();
+
+  init_audio_dictionary();
 
   for(;;)
   {
@@ -299,53 +308,15 @@ void StartDefaultTask(void const * argument)
     	sec_cnt++;
     }
 
-    // формирование выхода DAC при некорректном числе подключенных точек
-    err_num = 0;
-    if(inpReg[0]>=supposed_point_cnt) {
-		for(i=0;i<supposed_point_cnt;++i) {
-
-			if(discrInp[16+i*11+1]==0) {err_num = i+1;break;}
-			//if(discrInp[16+i*11+9] && (discrInp[16+i*11]==0)) {err_num = i+1;break;}
-		}
-	}else {
-		if(inpReg[0]) err_num = inpReg[0]+1;
-		for(i=0;i<inpReg[0];++i) {
-			if(discrInp[16+i*11+1]==0) {err_num = i+1;break;}
-			//if(discrInp[16+i*11+9] && (discrInp[16+i*11]==0)) {err_num = i+1;break;}
-		}
-	}
-
     can_tmr++;
 	if(can_tmr>=30) {
 		inpReg[0] = 0;
 		p_cnt=0;
 	}
 
-    if(err_num) {
-    	err_dec = err_num/10;
-    	err_point = err_num%10;
-    }else {
-    	err_dec = 0;
-    	err_point = 0;
-    }
 
 
-    if(inpReg[0]) {
-    	if(err_num) {
-    		TIM1->CCR3=7944+((39718-7944)/9)*err_dec;
-			TIM1->CCR2=7944+((39718-7944)/9)*err_point;
-    	}else {
-    		TIM1->CCR2=7944;
-			TIM1->CCR3=7944;
-    	}
-    }else {
-    	// 0.3 В
-    	TIM1->CCR2=5958;
-		TIM1->CCR3=5958;
-    }
 
-    if(inpReg[0] && err_num==0) HAL_GPIO_WritePin(RELAY2_GPIO_Port,RELAY2_Pin,GPIO_PIN_SET);
-	else HAL_GPIO_WritePin(RELAY2_GPIO_Port,RELAY2_Pin,GPIO_PIN_RESET);
 
     // алгоритм управления выходами шлюза и точек
     switch(gate_state) {
@@ -365,17 +336,20 @@ void StartDefaultTask(void const * argument)
 			break;
 		case CHECK_RELAY2:
 			if(HAL_GPIO_ReadPin(RELAY2_GPIO_Port,RELAY2_Pin)==GPIO_PIN_SET) gate_state = CHECK_DI2;
-			else gate_state = START_STATE;
+			else {
+				gate_state = START_STATE;
+			}
 			break;
 		case CHECK_DI2:
 			if(discrInp[3]) {
+				check_audio_state=1;
 				HAL_GPIO_WritePin(RELAY1_GPIO_Port,RELAY1_Pin,GPIO_PIN_SET);
 				send_scan_cmd_from_gate();
 				gate_tmr = 0;sec_cnt = 0;
 				manage_all_relays(2,1);
 				voip_out2=1;
 				gate_state = CHECK_AUDIO;
-			}else gate_state = START_STATE;
+			}else {gate_state = START_STATE;check_audio_state=0;}
 			break;
 		case CHECK_AUDIO:
 			if(gate_tmr==0) send_scan_cmd_from_gate();
@@ -384,8 +358,8 @@ void StartDefaultTask(void const * argument)
 				for(i=0;i<supposed_point_cnt;i++) {
 					if(discrInp[16+i*10]==0) {audio_test = 0; break;}
 				}
-				if(audio_test) gate_state = CHECK_DI3;
-				if(sec_cnt>=4) gate_state = START_STATE;
+				if(audio_test) {gate_state = CHECK_DI3;check_audio_state=0;}
+				if(sec_cnt>=4) {gate_state = START_STATE;check_audio_state=0;}
 			}
 			break;
 		case CHECK_DI3:
@@ -396,7 +370,6 @@ void StartDefaultTask(void const * argument)
 		case CHECK_DI2_2:
 			if(discrInp[3]) {
 				if(discrInp[0]==0) gate_state = START_STATE;
-				//if(gate_tmr==0) send_scan_cmd_from_gate();
 				if(gate_tmr==0) gate_state = CHECK_DI2;
 			}else gate_state = CHECK_RELAY2_2;
 			break;
@@ -416,8 +389,205 @@ void StartDefaultTask(void const * argument)
 			else gate_state = START_STATE;
 			break;
     }
-    toggle_first_led(RED);
-    toggle_second_led(RED);
+    if(discrInp[3] && (prev_di2==0)) {alarm_enable=1;alarm_id=0;prev_alarm_id=0;}
+	prev_di2 = discrInp[3];
+
+    // обработка оповещения аварий
+
+    if(discrInp[0] && (discrInp[3]==0) && (check_audio_state==0) && alarm_enable) {// && discrInp[6]) {
+    	alarm_id = 0;
+		// КТВ
+		for(i=0;i<inpReg[0];++i) {
+			if(discrInp[16+i*11+2]) {
+				alarm_id = (i+1) | 0x0100;
+				break;
+			}
+			if(discrInp[16+i*11+3]) {
+				alarm_id = (i+1) | 0x0200;
+				break;
+			}
+			if(discrInp[16+i*11+1]==0) {
+				alarm_id = (i+1) | 0x0300;
+				break;
+			}
+		}
+		// Питание
+		if(alarm_id==0) {
+			for(i=0;i<inpReg[0];++i) {
+				if((inpReg[16+i]&0xFF)<80) {
+					alarm_id = (i+1) | 0x0400;
+					break;
+				}
+			}
+		}
+		// обрыв линии связи
+		if(alarm_id==0) {
+			if(inpReg[0]<supposed_point_cnt) {
+				alarm_id = (inpReg[0]+1) | 0x0500;
+			}
+		}
+		// неисправность динамиков
+		if(alarm_id==0) {
+			for(i=0;i<inpReg[0];++i) {
+				if(discrInp[16+i*11+9] && (discrInp[16+i*11]==0)) {
+					alarm_id = (i+1) | 0x0600;
+					break;
+				}
+			}
+		}
+		if((is_sentence_ready_to_speak()==0) && alarm_id!=prev_alarm_id) {
+			if(alarm_id==0) {
+				add_word_to_sentence(32);
+				add_number(current_group);
+				add_word_to_sentence(28);
+				add_word_to_sentence(46);
+				set_sentence_ready_to_speak();
+			}else {
+				switch(alarm_id>>8) {
+					case 0x01:
+						add_word_to_sentence(28);
+						add_pause();
+						add_word_to_sentence(32);
+						add_number(current_group);
+						add_word_to_sentence(42);
+						add_number(alarm_id&0xFF);
+						add_word_to_sentence(30);
+						add_word_to_sentence(35);
+						add_word_to_sentence(39);
+						add_pause();
+						set_sentence_ready_to_speak();
+						break;
+					case 0x02:
+						add_word_to_sentence(28);
+						add_pause();
+						add_word_to_sentence(32);
+						add_number(current_group);
+						add_word_to_sentence(42);
+						add_number(alarm_id&0xFF);
+						add_word_to_sentence(30);
+						add_word_to_sentence(35);
+						add_word_to_sentence(34);
+						add_pause();
+						set_sentence_ready_to_speak();
+						break;
+					case 0x03:
+						add_word_to_sentence(28);
+						add_pause();
+						add_word_to_sentence(32);
+						add_number(current_group);
+						add_word_to_sentence(42);
+						add_number(alarm_id&0xFF);
+						add_word_to_sentence(30);
+						add_word_to_sentence(35);
+						add_word_to_sentence(38);
+						add_pause();
+						set_sentence_ready_to_speak();
+						break;
+					case 0x04:
+						add_word_to_sentence(28);
+						add_pause();
+						add_word_to_sentence(32);
+						add_number(current_group);
+						add_word_to_sentence(42);
+						add_number(alarm_id&0xFF);
+						add_word_to_sentence(40);
+						add_pause();
+						set_sentence_ready_to_speak();
+						break;
+					case 0x05:
+						add_word_to_sentence(28);
+						add_pause();
+						add_word_to_sentence(32);
+						add_number(current_group);
+						add_word_to_sentence(42);
+						add_number(alarm_id&0xFF);
+						add_word_to_sentence(47);
+						set_sentence_ready_to_speak();
+						break;
+					case 0x06:
+						add_word_to_sentence(28);
+						add_pause();
+						add_word_to_sentence(32);
+						add_number(current_group);
+						add_word_to_sentence(42);
+						add_number(alarm_id&0xFF);
+						add_word_to_sentence(36);
+						add_word_to_sentence(33);
+						add_word_to_sentence(37);
+						set_sentence_ready_to_speak();
+						break;
+				}
+			}
+			prev_alarm_id = alarm_id;
+		}
+    }else {
+    	alarm_id=0;
+    	prev_alarm_id=0;
+    }
+
+
+    /*
+
+	if(alarm_id&0xFF) {
+		err_dec = (alarm_id&0xFF)/10;
+		err_point = (alarm_id&0xFF)%10;
+	}else {
+		err_dec = 0;
+		err_point = 0;
+	}
+
+	// формирование выхода DAC при некорректном числе подключенных точек
+	if(inpReg[0]) {
+		if(alarm_id&0xFF) {
+			TIM1->CCR3=7944+((39718-7944)/9)*err_dec;
+			TIM1->CCR2=7944+((39718-7944)/9)*err_point;
+		}else {
+			TIM1->CCR2=7944;
+			TIM1->CCR3=7944;
+		}
+	}else {
+		// 0.3 В
+		TIM1->CCR2=5958;
+		TIM1->CCR3=5958;
+	}*/
+
+    if(inpReg[0]) {
+    	err_point = alarm_id&0xFF;
+    	if(err_point>64) err_point = 0;
+    	switch((alarm_id>>8)&0xFF) {
+    	case 0x01:  // обрыв 0.4 В
+    		TIM1->CCR3=7944;
+    		TIM1->CCR2=7944+((39718-7944)/64)*err_point;
+    		break;
+    	case 0x02:	// кз	0.4 В
+    		TIM1->CCR3=7944;
+    		TIM1->CCR2=7944+((39718-7944)/64)*err_point;
+    		break;
+    	case 0x03:	// нет сигнала	1 В
+    		TIM1->CCR3=19859;
+    		TIM1->CCR2=7944+((39718-7944)/64)*err_point;
+    		break;
+    	default:
+    		TIM1->CCR3=29788;	// норма 1.5 В
+    		TIM1->CCR2=7944;
+    		break;
+    	}
+	}else {
+		// 0.3 В
+		TIM1->CCR2=5958;
+		TIM1->CCR3=5958;
+	}
+
+	// выход готовности (не учитывает аварию динамиков)
+	if(discrInp[0]) {
+		if((((alarm_id>>8)==0)||((alarm_id>>8)==0x06))&&inpReg[0]) HAL_GPIO_WritePin(RELAY2_GPIO_Port,RELAY2_Pin,GPIO_PIN_SET);
+		else HAL_GPIO_WritePin(RELAY2_GPIO_Port,RELAY2_Pin,GPIO_PIN_RESET);
+	}else HAL_GPIO_WritePin(RELAY2_GPIO_Port,RELAY2_Pin,GPIO_PIN_RESET);
+
+    if(alarm_id) {
+    	//toggle_first_led(RED);
+    	//toggle_second_led(RED);
+    }
     bytes_to_bits(discrInp,modbus_di_array,DiscreteInputsLimit);
   }
   /* USER CODE END StartDefaultTask */
