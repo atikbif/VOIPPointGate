@@ -35,6 +35,7 @@
 #include "dyn_data.h"
 #include "can_protocol.h"
 #include "audio_out.h"
+#include "alarm.h"
 
 /* USER CODE END Includes */
 
@@ -103,7 +104,7 @@ uint8_t voip_out1 = 0;
 uint8_t voip_out2 = 0;
 
 uint16_t alarm_id = 0;
-static uint16_t prev_alarm_id = 0;
+//static uint16_t prev_alarm_id = 0;
 
 /* USER CODE END Variables */
 osThreadId defaultTaskHandle;
@@ -228,6 +229,7 @@ void StartDefaultTask(void const * argument)
   get_points_state();
 
   init_audio_dictionary();
+  clear_alarms();
 
   for(;;)
   {
@@ -389,7 +391,7 @@ void StartDefaultTask(void const * argument)
 			else gate_state = START_STATE;
 			break;
     }
-    if(discrInp[3] && (prev_di2==0)) {alarm_enable=1;alarm_id=0;prev_alarm_id=0;}
+    if(discrInp[3] && (prev_di2==0)) {alarm_enable=1;clear_alarms();}
 	prev_di2 = discrInp[3];
 
     // обработка оповещения аварий
@@ -398,51 +400,51 @@ void StartDefaultTask(void const * argument)
     	alarm_id = 0;
 		// КТВ
 		for(i=0;i<inpReg[0];++i) {
+			alarm_id = (i+1) | 0x0100;
 			if(discrInp[16+i*11+2]) {
-				alarm_id = (i+1) | 0x0100;
-				break;
-			}
+				add_alarm(alarm_id);
+			}else delete_alarm(alarm_id);
+			alarm_id = (i+1) | 0x0200;
 			if(discrInp[16+i*11+3]) {
-				alarm_id = (i+1) | 0x0200;
-				break;
-			}
+				add_alarm(alarm_id);
+			}else delete_alarm(alarm_id);
+			alarm_id = (i+1) | 0x0300;
 			if(discrInp[16+i*11+1]==0) {
-				alarm_id = (i+1) | 0x0300;
-				break;
-			}
-		}
-		// Питание
-		if(alarm_id==0) {
-			for(i=0;i<inpReg[0];++i) {
-				if((inpReg[16+i]&0xFF)<80) {
-					alarm_id = (i+1) | 0x0400;
-					break;
-				}
-			}
+				add_alarm(alarm_id);
+			}else delete_alarm(alarm_id);
 		}
 		// обрыв линии связи
-		if(alarm_id==0) {
-			if(inpReg[0]<supposed_point_cnt) {
-				alarm_id = (inpReg[0]+1) | 0x0500;
-			}
-		}
+		alarm_id = (inpReg[0]+1) | 0x0500;
+		if(inpReg[0]<supposed_point_cnt) {
+			add_alarm(alarm_id);
+		}else delete_alarm(alarm_id);
+
 		// неисправность динамиков
-		if(alarm_id==0) {
-			for(i=0;i<inpReg[0];++i) {
-				if(discrInp[16+i*11+9] && (discrInp[16+i*11]==0)) {
-					alarm_id = (i+1) | 0x0600;
-					break;
-				}
-			}
+		for(i=0;i<inpReg[0];++i) {
+			alarm_id = (i+1) | 0x0600;
+			if(discrInp[16+i*11+9] && (discrInp[16+i*11]==0)) {
+				add_alarm(alarm_id);
+			}else delete_alarm(alarm_id);
 		}
-		if((is_sentence_ready_to_speak()==0) && alarm_id!=prev_alarm_id) {
-			if(alarm_id==0) {
+
+		// Питание
+		for(i=0;i<inpReg[0];++i) {
+			alarm_id = (i+1) | 0x0400;
+			if((inpReg[16+i]&0xFF)<80) {
+				add_alarm(alarm_id);
+			}else delete_alarm(alarm_id);
+		}
+
+		if(is_sentence_ready_to_speak()==0) {
+			if(alarms_disappeared()) {
 				add_word_to_sentence(32);
 				add_number(current_group);
 				add_word_to_sentence(28);
 				add_word_to_sentence(46);
 				set_sentence_ready_to_speak();
 			}else {
+				alarm_id = get_alarm();
+				if(alarm_id)
 				switch(alarm_id>>8) {
 					case 0x01:
 						add_word_to_sentence(28);
@@ -518,11 +520,10 @@ void StartDefaultTask(void const * argument)
 						break;
 				}
 			}
-			prev_alarm_id = alarm_id;
+			//prev_alarm_id = alarm_id;
 		}
     }else {
-    	alarm_id=0;
-    	prev_alarm_id=0;
+    	clear_alarms();
     }
 
 
@@ -552,6 +553,20 @@ void StartDefaultTask(void const * argument)
 	}*/
 
     if(inpReg[0]) {
+    	alarm_id = 0;
+		// КТВ
+		for(i=0;i<inpReg[0];++i) {
+			if(discrInp[16+i*11+2]) {
+				alarm_id = (i+1) | 0x0100;break;
+			}
+			if(discrInp[16+i*11+3]) {
+				alarm_id = (i+1) | 0x0200;break;
+			}
+
+			if(discrInp[16+i*11+1]==0) {
+				alarm_id = (i+1) | 0x0300;break;
+			}
+		}
     	err_point = alarm_id&0xFF;
     	if(err_point>64) err_point = 0;
     	switch((alarm_id>>8)&0xFF) {
