@@ -375,8 +375,19 @@ void udp_server_receive_callback(void *arg, struct udp_pcb *upcb, struct pbuf *p
 			  if(data[5]<4) {
 				  send_set_volume(data[3],data[4],data[5]);
 				  send_set_volume(data[3],data[4],data[5]);
-				  send_set_volume(data[3],data[4],data[5]);
+				  //send_set_volume(data[3],data[4],data[5]);
 			  }
+			  break;
+		  case 0x06:	// настройка дискретных входов
+			  answer[0] = data[0];	// id high
+			  answer[1] = data[1];	// id low
+			  answer[2] = 0x06;		// cmd
+			  crc = GetCRC16((unsigned char*)answer,3);
+			  answer[3] = crc>>8;
+			  answer[4] = crc&0xFF;
+			  send_udp_data(upcb, addr, port, 5);
+			  send_set_point_inputs(data[3],data[4],data[5],data[6]);
+			  send_set_point_inputs(data[3],data[4],data[5],data[6]);
 
 			  break;
 	  }

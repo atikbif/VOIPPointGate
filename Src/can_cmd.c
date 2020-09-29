@@ -23,8 +23,25 @@ void send_set_volume(uint8_t group, uint8_t point, uint8_t volume) {
 	p_id->group_addr = group;
 	p_id->cmd = POINT_CONFIG;
 	p_id->param = 0;
-	packet.length = 1;
-	packet.data[0] = volume;
+	packet.length = 2;
+	packet.data[0] = 0x01;
+	packet.data[1] = volume;
+	add_tx_can_packet(&can1_tx_stack,&packet);
+	add_tx_can_packet(&can2_tx_stack,&packet);
+}
+
+void send_set_point_inputs(uint8_t group, uint8_t point, uint8_t filter, uint8_t en) {
+	tx_stack_data packet;
+	id_field *p_id = (id_field*)(&packet.id);
+	p_id->type = UNUSED_TYPE;
+	p_id->point_addr = point;
+	p_id->group_addr = group;
+	p_id->cmd = POINT_CONFIG;
+	p_id->param = 0;
+	packet.length = 3;
+	packet.data[0] = 0x02;
+	packet.data[1] = filter;
+	packet.data[2] = en;
 	add_tx_can_packet(&can1_tx_stack,&packet);
 	add_tx_can_packet(&can2_tx_stack,&packet);
 }

@@ -56,6 +56,7 @@
 
 
 void send_set_volume(uint8_t group, uint8_t point, uint8_t volume);
+void send_set_point_inputs(uint8_t group, uint8_t point, uint8_t filter, uint8_t en);
 void send_write_boot_data(uint8_t addr1, uint8_t addr2, uint8_t addr3, uint8_t addr4, uint8_t group, uint8_t point, uint8_t id,uint8_t length, uint8_t *ptr);
 void send_erase_page(uint8_t num, uint8_t group, uint8_t point);
 void send_switch_to_boot(uint8_t group, uint8_t point);

@@ -400,16 +400,16 @@ void StartDefaultTask(void const * argument)
     	alarm_id = 0;
 		// КТВ
 		for(i=0;i<inpReg[0];++i) {
-			alarm_id = (i+1) | 0x0100;
+			alarm_id = (i+1) | 0x0100;	// обрыв
 			if(discrInp[16+i*11+2]) {
 				add_alarm(alarm_id);
 			}else delete_alarm(alarm_id);
-			alarm_id = (i+1) | 0x0200;
+			alarm_id = (i+1) | 0x0200;	// кз
 			if(discrInp[16+i*11+3]) {
 				add_alarm(alarm_id);
 			}else delete_alarm(alarm_id);
-			alarm_id = (i+1) | 0x0300;
-			if(discrInp[16+i*11+1]==0) {
+			alarm_id = (i+1) | 0x0300;	// нет сигнала
+			if(discrInp[16+i*11+1]==0 && ((discrInp[16+i*11+2]==0) && (discrInp[16+i*11+3]==0))) {
 				add_alarm(alarm_id);
 			}else delete_alarm(alarm_id);
 		}

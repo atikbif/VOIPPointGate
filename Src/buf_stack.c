@@ -18,11 +18,11 @@ static uint16_t atomicWrPosIncrement(uint16_t * ptr)
 	uint8_t try_num = 0;
 	do
 	{
-		try_num++;
-		if(try_num>3) break;
 		oldValue = __LDREXH(ptr);
 		newValue = oldValue + 1;
 		if(newValue>=STACK_SIZE) newValue = 0;
+		try_num++;
+		if(try_num>3) break;
 	}while(__STREXH(newValue, ptr));
 	return oldValue;
 }

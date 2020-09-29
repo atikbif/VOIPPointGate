@@ -348,6 +348,7 @@ void check_can_rx(uint8_t can_num) {
 					point.version = RxData[4];
 					point.bits = (((uint16_t)RxData[0])<<8) | RxData[1];
 					point.gain = RxData[5];
+					point.inp_filters = RxData[6];
 					add_point_data(&point);
 				}
 			}else if(p_id->cmd==LAST_POINT && p_id->point_addr<=64 && p_id->point_addr>0) {

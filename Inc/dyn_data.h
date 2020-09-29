@@ -18,6 +18,7 @@ struct point_data{
 	uint16_t bits;
 	uint8_t version;
 	uint8_t gain;
+	uint8_t inp_filters;
 	struct point_data *next;
 };
 

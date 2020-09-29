@@ -24,6 +24,7 @@ void init_points() {
 		points[i].point_num=0;
 		points[i].power=0;
 		points[i].version=0;
+		points[i].inp_filters=0;
 	}
 }
 
@@ -58,6 +59,7 @@ static void copy_point_data(struct point_data *inp, struct point_data *out) {
 	out->power = inp->power;
 	out->version = inp->version;
 	out->gain = inp->gain;
+	out->inp_filters = inp->inp_filters;
 }
 
 static void add_new_point(struct point_data *ptr) {
@@ -115,32 +117,34 @@ uint16_t write_group_data_to_buf(uint8_t *ptr) {
 
 uint16_t write_point_data_to_buf(uint8_t part_num, uint8_t *ptr) {
 	uint16_t start_point=0;
-	const uint16_t length = (POINT_CNT/4);
+	const uint16_t length = (POINT_CNT/5);
 	uint16_t i = 0;
-	while(part_num>=4) part_num-=4;
-	start_point=(POINT_CNT/4)*part_num;
+	while(part_num>=5) part_num-=5;
+	start_point=(POINT_CNT/5)*part_num;
 	ptr[0] = used_point_cnt >> 8;
 	ptr[1] = used_point_cnt & 0xFF;
 	for(i=0;i<length;i++) {
 		if(start_point+i<used_point_cnt) {
-			ptr[i*8+2] = points[start_point+i].gr_num+1;
-			ptr[i*8+3] = points[start_point+i].point_num+1;
-			ptr[i*8+4] = points[start_point+i].battery;
-			ptr[i*8+5] = points[start_point+i].power;
-			ptr[i*8+6] = points[start_point+i].version;
-			ptr[i*8+7] = points[start_point+i].bits>>8;
-			ptr[i*8+8] = points[start_point+i].bits & 0xFF;
-			ptr[i*8+9] = points[start_point+i].gain;
+			ptr[i*9+2] = points[start_point+i].gr_num+1;
+			ptr[i*9+3] = points[start_point+i].point_num+1;
+			ptr[i*9+4] = points[start_point+i].battery;
+			ptr[i*9+5] = points[start_point+i].power;
+			ptr[i*9+6] = points[start_point+i].version;
+			ptr[i*9+7] = points[start_point+i].bits>>8;
+			ptr[i*9+8] = points[start_point+i].bits & 0xFF;
+			ptr[i*9+9] = points[start_point+i].gain;
+			ptr[i*9+10] = points[start_point+i].inp_filters;
 		}else {
-			ptr[i*8+2] = 0;
-			ptr[i*8+3] = 0;
-			ptr[i*8+4] = 0;
-			ptr[i*8+5] = 0;
-			ptr[i*8+6] = 0;
-			ptr[i*8+7] = 0;
-			ptr[i*8+8] = 0;
-			ptr[i*8+9] = 0;
+			ptr[i*9+2] = 0;
+			ptr[i*9+3] = 0;
+			ptr[i*9+4] = 0;
+			ptr[i*9+5] = 0;
+			ptr[i*9+6] = 0;
+			ptr[i*9+7] = 0;
+			ptr[i*9+8] = 0;
+			ptr[i*9+9] = 0;
+			ptr[i*9+10] = 0;
 		}
 	}
-	return 2 + length*8;
+	return 2 + length*9;
 }
