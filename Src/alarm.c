@@ -64,6 +64,34 @@ void delete_alarm(uint16_t value) {
 	}
 }
 
+void delete_alarm_group(uint16_t value) {
+	uint8_t i=0;
+	uint8_t j=0;
+	for(i=0;i<MAX_ALARM_CNT;++i) {
+		if(i>cur_pos) break;
+		if(alarms[i].num>>8==value>>8) {
+			if(cur_pos) {
+				uint8_t speak_flag = alarms[i].speak_flag;
+				for(j=i;j<cur_pos-1;j++) {
+					alarms[j].num = alarms[j+1].num;
+					alarms[j].speak_flag = alarms[j+1].speak_flag;
+				}
+				cur_pos--;
+				alarms[cur_pos].num = 0;
+				alarms[cur_pos].speak_flag = 0;
+				if(speak_flag) {
+					for(j=0;j<MAX_ALARM_CNT;j++) {
+						if(j>cur_pos) break;
+						alarms[j].speak_flag = 0;
+					}
+				}
+				if(cur_pos==0) disappeared_flag = 1;
+				if(i) i--;
+			}
+		}
+	}
+}
+
 uint16_t get_alarm() {
 	uint8_t i=0;
 	for(i=0;i<MAX_ALARM_CNT;++i) {

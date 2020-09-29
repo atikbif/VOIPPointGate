@@ -103,6 +103,8 @@ extern uint16_t call_tmr;
 uint8_t voip_out1 = 0;
 uint8_t voip_out2 = 0;
 
+uint8_t alarm_led = 0;
+
 uint16_t alarm_id = 0;
 //static uint16_t prev_alarm_id = 0;
 
@@ -217,7 +219,7 @@ void StartDefaultTask(void const * argument)
 
   uint16_t j=0;
   uint8_t prev_di2=0;
-  uint8_t alarm_enable = 0;
+  uint8_t alarm_flag = 0;
   uint8_t check_audio_state = 0;
 
   led_init();
@@ -302,8 +304,6 @@ void StartDefaultTask(void const * argument)
 	group_tmr[current_group-1]=0;
 	group_bits = group.bits;
 
-    // manage relay 2
-
     gate_tmr++;
     if(gate_tmr>=10) {
     	gate_tmr=0;
@@ -315,10 +315,6 @@ void StartDefaultTask(void const * argument)
 		inpReg[0] = 0;
 		p_cnt=0;
 	}
-
-
-
-
 
     // алгоритм управления выходами шлюза и точек
     switch(gate_state) {
@@ -355,13 +351,23 @@ void StartDefaultTask(void const * argument)
 			break;
 		case CHECK_AUDIO:
 			if(gate_tmr==0) send_scan_cmd_from_gate();
-			if(sec_cnt>=2) {
+			if(sec_cnt>=3) {
 				audio_test = 1;
-				for(i=0;i<supposed_point_cnt;i++) {
-					if(discrInp[16+i*10]==0) {audio_test = 0; break;}
+				for(i=0;i<inpReg[0];i++) {
+					struct point_data* p = is_point_created(current_group-1,i);
+					if(p) {
+						if(get_audio_state(p)==AUD_PROBLEM) {audio_test = 0; break;}
+					}else {
+						audio_test=0;break;
+					}
 				}
 				if(audio_test) {gate_state = CHECK_DI3;check_audio_state=0;}
-				if(sec_cnt>=4) {gate_state = START_STATE;check_audio_state=0;}
+				if(sec_cnt>=4) {
+					gate_state = CHECK_DI1;
+					check_audio_state=0;
+					voip_out1 = 0;
+					manage_all_relays(1,0);
+				}
 			}
 			break;
 		case CHECK_DI3:
@@ -391,144 +397,408 @@ void StartDefaultTask(void const * argument)
 			else gate_state = START_STATE;
 			break;
     }
-    if(discrInp[3] && (prev_di2==0)) {alarm_enable=1;clear_alarms();}
+    if(discrInp[3] && (prev_di2==0)) {/*alarm_enable=1;*/clear_alarms();}
 	prev_di2 = discrInp[3];
+
+
 
     // обработка оповещения аварий
 
-    if(discrInp[0] && (discrInp[3]==0) && (check_audio_state==0) && alarm_enable) {// && discrInp[6]) {
+	alarm_flag = 0;
+
+	if(check_audio_state==0) {
+		alarm_id = 0x1401;	// обрыв
+		if(discrInp[1]) {alarm_flag=1;add_alarm(alarm_id);}else delete_alarm(alarm_id);
+		alarm_id =  0x1501; // кз
+		if(discrInp[2]) {alarm_flag=1;add_alarm(alarm_id);}else delete_alarm(alarm_id);
+		alarm_id = 0x1402;	// обрыв
+		if(discrInp[4]) {alarm_flag=1;add_alarm(alarm_id);}else delete_alarm(alarm_id);
+		alarm_id = 0x1502;
+		if(discrInp[5]) {alarm_flag=1;add_alarm(alarm_id);}else delete_alarm(alarm_id);
+		alarm_id = 0x1403;
+		if(discrInp[7]) {alarm_flag=1;add_alarm(alarm_id);}else delete_alarm(alarm_id);
+		alarm_id = 0x1503;
+		if(discrInp[8]) {alarm_flag=1;add_alarm(alarm_id);}else delete_alarm(alarm_id);
+		alarm_id = 0x1300;
+		if(discrInp[1]==0 && discrInp[2]==0 && discrInp[4]==0 && discrInp[5]==0 && discrInp[0]==0 && discrInp[3]) {
+			add_alarm(alarm_id);
+		}else {
+			if(discrInp[0]) delete_alarm(alarm_id);
+		}
+	}
+
+
+
+    if(discrInp[0] && (discrInp[3]==0) && (check_audio_state==0)) {
     	alarm_id = 0;
 		// КТВ
 		for(i=0;i<inpReg[0];++i) {
-			alarm_id = (i+1) | 0x0100;	// обрыв
-			if(discrInp[16+i*11+2]) {
-				add_alarm(alarm_id);
-			}else delete_alarm(alarm_id);
-			alarm_id = (i+1) | 0x0200;	// кз
-			if(discrInp[16+i*11+3]) {
-				add_alarm(alarm_id);
-			}else delete_alarm(alarm_id);
-			alarm_id = (i+1) | 0x0300;	// нет сигнала
-			if(discrInp[16+i*11+1]==0 && ((discrInp[16+i*11+2]==0) && (discrInp[16+i*11+3]==0))) {
-				add_alarm(alarm_id);
-			}else delete_alarm(alarm_id);
+			struct point_data* p = is_point_created(current_group-1,i);
+			if(p) {
+				enum input_state di = get_input1(p);
+				if(di!=INP_UNUSED) {
+					alarm_id = (i+1) | 0x0100;	// обрыв
+					if(di==INP_BR) {alarm_flag=1;add_alarm(alarm_id);}
+					else delete_alarm(alarm_id);
+					alarm_id = (i+1) | 0x0200;	// кз
+					if(di==INP_SHORT) {alarm_flag=1;add_alarm(alarm_id);}
+					else delete_alarm(alarm_id);
+					alarm_id = (i+1) | 0x0300;	// нет сигнала
+					if(di==INP_OFF) {alarm_flag=1;add_alarm(alarm_id);}
+					else delete_alarm(alarm_id);
+				}
+				di = get_input2(p);
+				if(di!=INP_UNUSED) {
+					enum inp2_type inp_type = get_inp2_type(p);
+					if(inp_type==KSL) {
+						alarm_id = (i+1) | 0x0700;	// обрыв
+						if(di==INP_BR) {alarm_flag=1;add_alarm(alarm_id);}
+						else delete_alarm(alarm_id);
+						alarm_id = (i+1) | 0x0800;	// кз
+						if(di==INP_SHORT) {alarm_flag=1;add_alarm(alarm_id);}
+						else delete_alarm(alarm_id);
+						alarm_id = (i+1) | 0x0900;	// нет сигнала
+						if(di==INP_OFF) {alarm_flag=1;add_alarm(alarm_id);}
+						else delete_alarm(alarm_id);
+					}else if(inp_type==CROSSING) {
+						alarm_id = (i+1) | 0x0A00;	// обрыв
+						if(di==INP_BR) {alarm_flag=1;add_alarm(alarm_id);}
+						else delete_alarm(alarm_id);
+						alarm_id = (i+1) | 0x0B00;	// кз
+						if(di==INP_SHORT) {alarm_flag=1;add_alarm(alarm_id);}
+						else delete_alarm(alarm_id);
+						alarm_id = (i+1) | 0x0C00;	// нет сигнала
+						if(di==INP_OFF) {alarm_flag=1;add_alarm(alarm_id);}
+						else delete_alarm(alarm_id);
+					}else if(inp_type==FENCE) {
+						alarm_id = (i+1) | 0x0D00;	// обрыв
+						if(di==INP_BR) {alarm_flag=1;add_alarm(alarm_id);}
+						else delete_alarm(alarm_id);
+						alarm_id = (i+1) | 0x0E00;	// кз
+						if(di==INP_SHORT) {alarm_flag=1;add_alarm(alarm_id);}
+						else delete_alarm(alarm_id);
+						alarm_id = (i+1) | 0x0F00;	// нет сигнала
+						if(di==INP_OFF) {alarm_flag=1;add_alarm(alarm_id);}
+						else delete_alarm(alarm_id);
+					}else if(inp_type==JAMMING) {
+						alarm_id = (i+1) | 0x1000;	// обрыв
+						if(di==INP_BR) {alarm_flag=1;add_alarm(alarm_id);}
+						else delete_alarm(alarm_id);
+						alarm_id = (i+1) | 0x1100;	// кз
+						if(di==INP_SHORT) {alarm_flag=1;add_alarm(alarm_id);}
+						else delete_alarm(alarm_id);
+						alarm_id = (i+1) | 0x1200;	// нет сигнала
+						if(di==INP_OFF) {alarm_flag=1;add_alarm(alarm_id);}
+						else delete_alarm(alarm_id);
+					}
+
+				}
+			}
 		}
 		// обрыв линии связи
 		alarm_id = (inpReg[0]+1) | 0x0500;
-		if(inpReg[0]<supposed_point_cnt) {
-			add_alarm(alarm_id);
-		}else delete_alarm(alarm_id);
+		if(inpReg[0]<supposed_point_cnt) {alarm_flag=1;add_alarm(alarm_id);}
+		else delete_alarm_group(alarm_id);
+
+
 
 		// неисправность динамиков
 		for(i=0;i<inpReg[0];++i) {
-			alarm_id = (i+1) | 0x0600;
-			if(discrInp[16+i*11+9] && (discrInp[16+i*11]==0)) {
-				add_alarm(alarm_id);
-			}else delete_alarm(alarm_id);
+			struct point_data* p = is_point_created(current_group-1,i);
+			if(p) {
+				enum audio_state aud_res = get_audio_state(p);
+				alarm_id = (i+1) | 0x0600;
+				if(aud_res == AUD_PROBLEM) add_alarm(alarm_id);
+				else delete_alarm(alarm_id);
+			}
 		}
 
 		// Питание
 		for(i=0;i<inpReg[0];++i) {
-			alarm_id = (i+1) | 0x0400;
-			if((inpReg[16+i]&0xFF)<80) {
-				add_alarm(alarm_id);
-			}else delete_alarm(alarm_id);
-		}
-
-		if(is_sentence_ready_to_speak()==0) {
-			if(alarms_disappeared()) {
-				add_word_to_sentence(32);
-				add_number(current_group);
-				add_word_to_sentence(28);
-				add_word_to_sentence(46);
-				set_sentence_ready_to_speak();
-			}else {
-				alarm_id = get_alarm();
-				if(alarm_id)
-				switch(alarm_id>>8) {
-					case 0x01:
-						add_word_to_sentence(28);
-						add_pause();
-						add_word_to_sentence(32);
-						add_number(current_group);
-						add_word_to_sentence(42);
-						add_number(alarm_id&0xFF);
-						add_word_to_sentence(30);
-						add_word_to_sentence(35);
-						add_word_to_sentence(39);
-						add_pause();
-						set_sentence_ready_to_speak();
-						break;
-					case 0x02:
-						add_word_to_sentence(28);
-						add_pause();
-						add_word_to_sentence(32);
-						add_number(current_group);
-						add_word_to_sentence(42);
-						add_number(alarm_id&0xFF);
-						add_word_to_sentence(30);
-						add_word_to_sentence(35);
-						add_word_to_sentence(34);
-						add_pause();
-						set_sentence_ready_to_speak();
-						break;
-					case 0x03:
-						add_word_to_sentence(28);
-						add_pause();
-						add_word_to_sentence(32);
-						add_number(current_group);
-						add_word_to_sentence(42);
-						add_number(alarm_id&0xFF);
-						add_word_to_sentence(30);
-						add_word_to_sentence(35);
-						add_word_to_sentence(38);
-						add_pause();
-						set_sentence_ready_to_speak();
-						break;
-					case 0x04:
-						add_word_to_sentence(28);
-						add_pause();
-						add_word_to_sentence(32);
-						add_number(current_group);
-						add_word_to_sentence(42);
-						add_number(alarm_id&0xFF);
-						add_word_to_sentence(40);
-						add_pause();
-						set_sentence_ready_to_speak();
-						break;
-					case 0x05:
-						add_word_to_sentence(28);
-						add_pause();
-						add_word_to_sentence(32);
-						add_number(current_group);
-						add_word_to_sentence(42);
-						add_number(alarm_id&0xFF);
-						add_word_to_sentence(47);
-						set_sentence_ready_to_speak();
-						break;
-					case 0x06:
-						add_word_to_sentence(28);
-						add_pause();
-						add_word_to_sentence(32);
-						add_number(current_group);
-						add_word_to_sentence(42);
-						add_number(alarm_id&0xFF);
-						add_word_to_sentence(36);
-						add_word_to_sentence(33);
-						add_word_to_sentence(37);
-						set_sentence_ready_to_speak();
-						break;
-				}
+			struct point_data* p = is_point_created(current_group-1,i);
+			if(p) {
+				alarm_id = (i+1) | 0x0400;
+				if(p->power<70) {alarm_flag=1;add_alarm(alarm_id);}
+				else delete_alarm(alarm_id);
 			}
-			//prev_alarm_id = alarm_id;
 		}
-    }else {
+    }/*else {
     	clear_alarms();
-    }
+    }*/
+    alarm_led = alarm_flag;
+
+    if(is_sentence_ready_to_speak()==0 && check_audio_state==0) {
+		if(alarms_disappeared()) {
+			add_word_to_sentence(32);
+			add_number(current_group);
+			add_word_to_sentence(28);
+			add_word_to_sentence(46);
+			set_sentence_ready_to_speak();
+		}else {
+			alarm_id = get_alarm();
+			if(alarm_id)
+			switch(alarm_id>>8) {
+				case 0x01:
+					add_word_to_sentence(28);
+					add_pause();
+					add_word_to_sentence(32);
+					add_number(current_group);
+					add_word_to_sentence(42);
+					add_number(alarm_id&0xFF);
+					add_word_to_sentence(30);
+					add_word_to_sentence(35);
+					add_word_to_sentence(39);
+					add_pause();
+					set_sentence_ready_to_speak();
+					break;
+				case 0x02:
+					add_word_to_sentence(28);
+					add_pause();
+					add_word_to_sentence(32);
+					add_number(current_group);
+					add_word_to_sentence(42);
+					add_number(alarm_id&0xFF);
+					add_word_to_sentence(30);
+					add_word_to_sentence(35);
+					add_word_to_sentence(34);
+					add_pause();
+					set_sentence_ready_to_speak();
+					break;
+				case 0x03:
+					add_word_to_sentence(28);
+					add_pause();
+					add_word_to_sentence(32);
+					add_number(current_group);
+					add_word_to_sentence(42);
+					add_number(alarm_id&0xFF);
+					add_word_to_sentence(30);
+					add_word_to_sentence(35);
+					add_word_to_sentence(38);
+					add_pause();
+					set_sentence_ready_to_speak();
+					break;
+				case 0x04:
+					add_word_to_sentence(28);
+					add_pause();
+					add_word_to_sentence(32);
+					add_number(current_group);
+					add_word_to_sentence(42);
+					add_number(alarm_id&0xFF);
+					add_word_to_sentence(40);
+					add_pause();
+					set_sentence_ready_to_speak();
+					break;
+				case 0x05:
+					add_word_to_sentence(28);
+					add_pause();
+					add_word_to_sentence(32);
+					add_number(current_group);
+					add_word_to_sentence(42);
+					add_number(alarm_id&0xFF);
+					add_word_to_sentence(47);
+					set_sentence_ready_to_speak();
+					break;
+				case 0x06:
+					add_word_to_sentence(28);
+					add_pause();
+					add_word_to_sentence(32);
+					add_number(current_group);
+					add_word_to_sentence(42);
+					add_number(alarm_id&0xFF);
+					add_word_to_sentence(36);
+					add_word_to_sentence(33);
+					add_word_to_sentence(37);
+					set_sentence_ready_to_speak();
+					break;
+				case 0x07: // обрыв КСЛ
+					add_word_to_sentence(28);
+					add_pause();
+					add_word_to_sentence(32);
+					add_number(current_group);
+					add_word_to_sentence(42);
+					add_number(alarm_id&0xFF);
+					add_word_to_sentence(30);
+					add_word_to_sentence(48);
+					add_word_to_sentence(39);
+					add_pause();
+					set_sentence_ready_to_speak();
+					break;
+				case 0x08: // КЗ КСЛ
+					add_word_to_sentence(28);
+					add_pause();
+					add_word_to_sentence(32);
+					add_number(current_group);
+					add_word_to_sentence(42);
+					add_number(alarm_id&0xFF);
+					add_word_to_sentence(30);
+					add_word_to_sentence(48);
+					add_word_to_sentence(34);
+					add_pause();
+					set_sentence_ready_to_speak();
+					break;
+				case 0x09: // нет сигнала КСЛ
+					add_word_to_sentence(28);
+					add_pause();
+					add_word_to_sentence(32);
+					add_number(current_group);
+					add_word_to_sentence(42);
+					add_number(alarm_id&0xFF);
+					add_word_to_sentence(30);
+					add_word_to_sentence(48);
+					add_word_to_sentence(38);
+					add_pause();
+					set_sentence_ready_to_speak();
+					break;
+				case 0x0A: // обрыв переезд
+					add_word_to_sentence(28);
+					add_pause();
+					add_word_to_sentence(32);
+					add_number(current_group);
+					add_word_to_sentence(42);
+					add_number(alarm_id&0xFF);
+					add_word_to_sentence(30);
+					add_word_to_sentence(49);
+					add_word_to_sentence(39);
+					add_pause();
+					set_sentence_ready_to_speak();
+					break;
+				case 0x0B: // КЗ переезд
+					add_word_to_sentence(28);
+					add_pause();
+					add_word_to_sentence(32);
+					add_number(current_group);
+					add_word_to_sentence(42);
+					add_number(alarm_id&0xFF);
+					add_word_to_sentence(30);
+					add_word_to_sentence(49);
+					add_word_to_sentence(34);
+					add_pause();
+					set_sentence_ready_to_speak();
+					break;
+				case 0x0C: // нет сигнала переезд
+					add_word_to_sentence(28);
+					add_pause();
+					add_word_to_sentence(32);
+					add_number(current_group);
+					add_word_to_sentence(42);
+					add_number(alarm_id&0xFF);
+					add_word_to_sentence(30);
+					add_word_to_sentence(49);
+					add_word_to_sentence(38);
+					add_pause();
+					set_sentence_ready_to_speak();
+					break;
+				case 0x0D: // обрыв ограждение
+					add_word_to_sentence(28);
+					add_pause();
+					add_word_to_sentence(32);
+					add_number(current_group);
+					add_word_to_sentence(42);
+					add_number(alarm_id&0xFF);
+					add_word_to_sentence(30);
+					add_word_to_sentence(50);
+					add_word_to_sentence(39);
+					add_pause();
+					set_sentence_ready_to_speak();
+					break;
+				case 0x0E: // КЗ ограждение
+					add_word_to_sentence(28);
+					add_pause();
+					add_word_to_sentence(32);
+					add_number(current_group);
+					add_word_to_sentence(42);
+					add_number(alarm_id&0xFF);
+					add_word_to_sentence(30);
+					add_word_to_sentence(50);
+					add_word_to_sentence(34);
+					add_pause();
+					set_sentence_ready_to_speak();
+					break;
+				case 0x0F: // нет сигнала ограждение
+					add_word_to_sentence(28);
+					add_pause();
+					add_word_to_sentence(32);
+					add_number(current_group);
+					add_word_to_sentence(42);
+					add_number(alarm_id&0xFF);
+					add_word_to_sentence(30);
+					add_word_to_sentence(50);
+					add_word_to_sentence(38);
+					add_pause();
+					set_sentence_ready_to_speak();
+					break;
+				case 0x10: // обрыв заштыбовка
+					add_word_to_sentence(28);
+					add_pause();
+					add_word_to_sentence(32);
+					add_number(current_group);
+					add_word_to_sentence(42);
+					add_number(alarm_id&0xFF);
+					add_word_to_sentence(30);
+					add_word_to_sentence(51);
+					add_word_to_sentence(39);
+					add_pause();
+					set_sentence_ready_to_speak();
+					break;
+				case 0x11: // КЗ заштыбовка
+					add_word_to_sentence(28);
+					add_pause();
+					add_word_to_sentence(32);
+					add_number(current_group);
+					add_word_to_sentence(42);
+					add_number(alarm_id&0xFF);
+					add_word_to_sentence(30);
+					add_word_to_sentence(51);
+					add_word_to_sentence(34);
+					add_pause();
+					set_sentence_ready_to_speak();
+					break;
+				case 0x12: // нет сигнала заштыбовка
+					add_word_to_sentence(28);
+					add_pause();
+					add_word_to_sentence(32);
+					add_number(current_group);
+					add_word_to_sentence(42);
+					add_number(alarm_id&0xFF);
+					add_word_to_sentence(30);
+					add_word_to_sentence(51);
+					add_word_to_sentence(38);
+					add_pause();
+					set_sentence_ready_to_speak();
+					break;
+				case 0x13:// нет разрешения на запуск от входа 1
+					add_word_to_sentence(52);
+					add_pause();
+					set_sentence_ready_to_speak();
+					break;
+				case 0x14: // обрыв входа шлюза
+					add_word_to_sentence(28);
+					add_pause();
+					add_word_to_sentence(44);
+					add_pause();
+					add_word_to_sentence(30);
+					add_number(alarm_id&0xFF);
+					add_pause();
+					add_word_to_sentence(39);
+					set_sentence_ready_to_speak();
+					break;
+				case 0x15: // КЗ входа шлюза
+					add_word_to_sentence(28);
+					add_pause();
+					add_word_to_sentence(44);
+					add_pause();
+					add_word_to_sentence(30);
+					add_number(alarm_id&0xFF);
+					add_pause();
+					add_word_to_sentence(34);
+					set_sentence_ready_to_speak();
+					break;
+			}
+		}
+	}
 
 
     /*
-
 	if(alarm_id&0xFF) {
 		err_dec = (alarm_id&0xFF)/10;
 		err_point = (alarm_id&0xFF)%10;
@@ -536,7 +806,6 @@ void StartDefaultTask(void const * argument)
 		err_dec = 0;
 		err_point = 0;
 	}
-
 	// формирование выхода DAC при некорректном числе подключенных точек
 	if(inpReg[0]) {
 		if(alarm_id&0xFF) {
@@ -595,7 +864,8 @@ void StartDefaultTask(void const * argument)
 
 	// выход готовности (не учитывает аварию динамиков)
 	if(discrInp[0]) {
-		if((((alarm_id>>8)==0)||((alarm_id>>8)==0x06))&&inpReg[0]) HAL_GPIO_WritePin(RELAY2_GPIO_Port,RELAY2_Pin,GPIO_PIN_SET);
+		if(inpReg[0]>=supposed_point_cnt && alarm_flag==0) HAL_GPIO_WritePin(RELAY2_GPIO_Port,RELAY2_Pin,GPIO_PIN_SET);
+		//if((((alarm_id>>8)==0)||((alarm_id>>8)==0x06))&&inpReg[0]) HAL_GPIO_WritePin(RELAY2_GPIO_Port,RELAY2_Pin,GPIO_PIN_SET);
 		else HAL_GPIO_WritePin(RELAY2_GPIO_Port,RELAY2_Pin,GPIO_PIN_RESET);
 	}else HAL_GPIO_WritePin(RELAY2_GPIO_Port,RELAY2_Pin,GPIO_PIN_RESET);
 

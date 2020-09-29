@@ -9,18 +9,8 @@
 #define DYN_DATA_H_
 
 #include <stdint.h>
+#include "point.h"
 
-struct point_data{
-	uint8_t gr_num;
-	uint8_t point_num;
-	uint8_t power;
-	uint8_t battery;
-	uint16_t bits;
-	uint8_t version;
-	uint8_t gain;
-	uint8_t inp_filters;
-	struct point_data *next;
-};
 
 struct group_data{
 	uint8_t num;
@@ -37,6 +27,8 @@ void add_group_data(uint8_t group_num, struct group_data *ptr);
 void add_point_data(struct point_data *ptr);
 uint16_t write_group_data_to_buf(uint8_t *ptr);
 uint16_t write_point_data_to_buf(uint8_t part_num, uint8_t *ptr);
+
+
 
 #define 	POINT_CNT	500
 #define		GROUP_CNT	32

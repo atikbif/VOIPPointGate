@@ -13,6 +13,7 @@
 void clear_alarms();
 void add_alarm(uint16_t value);
 void delete_alarm(uint16_t value);
+void delete_alarm_group(uint16_t value);
 uint16_t get_alarm();
 uint8_t alarms_disappeared();
 

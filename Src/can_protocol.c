@@ -63,7 +63,7 @@ uint16_t can_tmr = 0;	// таймер для проверки что к шлюзу не подключена ни одна т
 uint8_t call_flag = 0;
 uint16_t call_tmr = 0;
 
-extern uint16_t alarm_id;
+extern uint8_t alarm_led;
 
 
 extern CAN_HandleTypeDef hcan1;
@@ -283,7 +283,7 @@ void check_can_rx(uint8_t can_num) {
 	if(can_num==1) hcan = &hcan1; else hcan = &hcan2;
 	if(HAL_CAN_GetRxFifoFillLevel(hcan, CAN_RX_FIFO0)) {
 		if(HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK) {
-			if(alarm_id) {
+			if(alarm_led) {
 				if(can_num==2) toggle_second_led(RED);
 				else toggle_first_led(RED);
 			}else {
@@ -327,31 +327,39 @@ void check_can_rx(uint8_t can_num) {
 				}
 			}else if(p_id->cmd==POINT_STATE) {
 				if(p_id->point_addr>0 && p_id->point_addr<=64) {
-					if(p_id->group_addr==current_group) {
-						discrInp[16+(p_id->point_addr-1)*11] = RxData[0]&0x01;		// исправность микрофона/динамика
-						discrInp[16+(p_id->point_addr-1)*11+1] = RxData[1]&0x01;	// di1
-						discrInp[16+(p_id->point_addr-1)*11+2] = RxData[1]&0x02;	// обрыв
-						discrInp[16+(p_id->point_addr-1)*11+3] = RxData[1]&0x04;	// кз
-						discrInp[16+(p_id->point_addr-1)*11+4] = RxData[1]&0x08;	// di2
-						discrInp[16+(p_id->point_addr-1)*11+5] = RxData[1]&0x10;	// обрыв
-						discrInp[16+(p_id->point_addr-1)*11+6] = RxData[1]&0x20;	// кз
-						discrInp[16+(p_id->point_addr-1)*11+7] = RxData[1]&0x40;		// do1
-						discrInp[16+(p_id->point_addr-1)*11+8] = RxData[1]&0x80;		// do2
-						discrInp[16+(p_id->point_addr-1)*11+9] = RxData[0]&0x02;		// проверка испрвн динамиков
-						discrInp[16+(p_id->point_addr-1)*11+10] = RxData[0]&0x04;		// концевик
-						inpReg[16+(p_id->point_addr-1)] = (((uint16_t)RxData[2])<<8) | RxData[3];
+					if(p_id->group_addr==current_group && can_num==2) {
+						// неправильное подключение
 					}
-					point.battery = RxData[2];
-					point.power = RxData[3];
-					point.gr_num = p_id->group_addr-1;
-					point.point_num = p_id->point_addr-1;
-					point.version = RxData[4];
-					point.bits = (((uint16_t)RxData[0])<<8) | RxData[1];
-					point.gain = RxData[5];
-					point.inp_filters = RxData[6];
-					add_point_data(&point);
+					else
+					{
+						if(p_id->group_addr==current_group) {
+							discrInp[16+(p_id->point_addr-1)*11] = RxData[0]&0x01;		// исправность микрофона/динамика
+							discrInp[16+(p_id->point_addr-1)*11+1] = RxData[1]&0x01;	// di1
+							discrInp[16+(p_id->point_addr-1)*11+2] = RxData[1]&0x02;	// обрыв
+							discrInp[16+(p_id->point_addr-1)*11+3] = RxData[1]&0x04;	// кз
+							discrInp[16+(p_id->point_addr-1)*11+4] = RxData[1]&0x08;	// di2
+							discrInp[16+(p_id->point_addr-1)*11+5] = RxData[1]&0x10;	// обрыв
+							discrInp[16+(p_id->point_addr-1)*11+6] = RxData[1]&0x20;	// кз
+							discrInp[16+(p_id->point_addr-1)*11+7] = RxData[1]&0x40;		// do1
+							discrInp[16+(p_id->point_addr-1)*11+8] = RxData[1]&0x80;		// do2
+							discrInp[16+(p_id->point_addr-1)*11+9] = RxData[0]&0x02;		// проверка испрвн динамиков
+							discrInp[16+(p_id->point_addr-1)*11+10] = RxData[0]&0x04;		// концевик
+							inpReg[16+(p_id->point_addr-1)] = (((uint16_t)RxData[2])<<8) | RxData[3];
+						}
+						if(p_id->group_addr!=0 && p_id->point_addr!=0) {
+							point.battery = RxData[2];
+							point.power = RxData[3];
+							point.gr_num = p_id->group_addr-1;
+							point.point_num = p_id->point_addr-1;
+							point.version = RxData[4];
+							point.bits = (((uint16_t)RxData[0])<<8) | RxData[1];
+							point.gain = RxData[5];
+							point.inp_filters = RxData[6];
+							add_point_data(&point);
+						}
+					}
 				}
-			}else if(p_id->cmd==LAST_POINT && p_id->point_addr<=64 && p_id->point_addr>0) {
+			}else if(p_id->cmd==LAST_POINT && p_id->point_addr<=64 && p_id->point_addr>0 && can_num==1) {
 				if(p_id->type == BREAK_FINISH) {
 					p_cnt = p_id->point_addr;
 				}else if(p_id->type == NORMAL_FINISH) {
