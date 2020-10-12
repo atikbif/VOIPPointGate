@@ -61,6 +61,8 @@
 #define		CHECK_RELAY2_2		7
 #define		CHECK_DI1_2			8
 
+#define 	START_DEAY_TIME		50
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -221,6 +223,8 @@ void StartDefaultTask(void const * argument)
   uint8_t prev_di2=0;
   uint8_t alarm_flag = 0;
   uint8_t check_audio_state = 0;
+  //uint8_t start_flag = 0;
+  uint16_t start_delay = 0;
 
   led_init();
   udp_server_init();
@@ -236,6 +240,13 @@ void StartDefaultTask(void const * argument)
   for(;;)
   {
     osDelay(100);
+    if(start_delay<START_DEAY_TIME) start_delay++;
+    else {
+    	if(start_delay==START_DEAY_TIME) {
+    		while(get_alarm()) osDelay(1);
+    		start_delay++;
+    	}
+    }
     if(call_tmr<10) call_tmr++;else {
     	call_flag=0;
     }
@@ -319,6 +330,7 @@ void StartDefaultTask(void const * argument)
     // алгоритм управления выходами шлюза и точек
     switch(gate_state) {
 		case START_STATE:
+			check_audio_state = 0;
 			if(gate_tmr==0) {	// выключить реле на всех громкоговорителях
 				manage_all_relays(1,0);
 				manage_all_relays(2,0);
@@ -339,6 +351,7 @@ void StartDefaultTask(void const * argument)
 			}
 			break;
 		case CHECK_DI2:
+			if(HAL_GPIO_ReadPin(RELAY2_GPIO_Port,RELAY2_Pin)!=GPIO_PIN_SET) gate_state = START_STATE;
 			if(discrInp[3]) {
 				check_audio_state=1;
 				HAL_GPIO_WritePin(RELAY1_GPIO_Port,RELAY1_Pin,GPIO_PIN_SET);
@@ -350,6 +363,7 @@ void StartDefaultTask(void const * argument)
 			}else {gate_state = START_STATE;check_audio_state=0;}
 			break;
 		case CHECK_AUDIO:
+			if(HAL_GPIO_ReadPin(RELAY2_GPIO_Port,RELAY2_Pin)!=GPIO_PIN_SET) gate_state = START_STATE;
 			if(gate_tmr==0) send_scan_cmd_from_gate();
 			if(sec_cnt>=3) {
 				audio_test = 1;
@@ -361,7 +375,8 @@ void StartDefaultTask(void const * argument)
 						audio_test=0;break;
 					}
 				}
-				if(audio_test) {gate_state = CHECK_DI3;check_audio_state=0;}
+				//if(audio_test)
+				{gate_state = CHECK_DI3;check_audio_state=0;break;}
 				if(sec_cnt>=4) {
 					gate_state = CHECK_DI1;
 					check_audio_state=0;
@@ -371,11 +386,13 @@ void StartDefaultTask(void const * argument)
 			}
 			break;
 		case CHECK_DI3:
+			if(HAL_GPIO_ReadPin(RELAY2_GPIO_Port,RELAY2_Pin)!=GPIO_PIN_SET) gate_state = START_STATE;
 			if(discrInp[6]) {
 				gate_state = CHECK_DI2_2;
 			}else gate_state = CHECK_DI1;
 			break;
 		case CHECK_DI2_2:
+			if(HAL_GPIO_ReadPin(RELAY2_GPIO_Port,RELAY2_Pin)!=GPIO_PIN_SET) gate_state = START_STATE;
 			if(discrInp[3]) {
 				if(discrInp[0]==0) gate_state = START_STATE;
 				if(gate_tmr==0) gate_state = CHECK_DI2;
@@ -397,7 +414,7 @@ void StartDefaultTask(void const * argument)
 			else gate_state = START_STATE;
 			break;
     }
-    if(discrInp[3] && (prev_di2==0)) {/*alarm_enable=1;*/clear_alarms();}
+    if(discrInp[3] && (prev_di2==0)) {/*alarm_enable=1;*/clear_alarms();/*if(discrInp[0]) start_flag=1;*/}
 	prev_di2 = discrInp[3];
 
 
@@ -406,7 +423,9 @@ void StartDefaultTask(void const * argument)
 
 	alarm_flag = 0;
 
-	if(check_audio_state==0) {
+	//if(check_audio_state==0)
+	if(start_delay>START_DEAY_TIME)
+	{
 		alarm_id = 0x1401;	// обрыв
 		if(discrInp[1]) {alarm_flag=1;add_alarm(alarm_id);}else delete_alarm(alarm_id);
 		alarm_id =  0x1501; // кз
@@ -429,7 +448,10 @@ void StartDefaultTask(void const * argument)
 
 
 
-    if(discrInp[0] && (discrInp[3]==0) && (check_audio_state==0)) {
+    //if(discrInp[0] && (discrInp[3]==0)/* && (check_audio_state==0)*/)
+	//if(start_flag)
+	if(start_delay>=(START_DEAY_TIME-10))
+    {
     	alarm_id = 0;
 		// КТВ
 		for(i=0;i<inpReg[0];++i) {
@@ -494,7 +516,10 @@ void StartDefaultTask(void const * argument)
 
 				}
 			}
+
+
 		}
+
 		// обрыв линии связи
 		alarm_id = (inpReg[0]+1) | 0x0500;
 		if(inpReg[0]<supposed_point_cnt) {alarm_flag=1;add_alarm(alarm_id);}
@@ -503,31 +528,21 @@ void StartDefaultTask(void const * argument)
 
 
 		// неисправность динамиков
-		for(i=0;i<inpReg[0];++i) {
-			struct point_data* p = is_point_created(current_group-1,i);
-			if(p) {
-				enum audio_state aud_res = get_audio_state(p);
-				alarm_id = (i+1) | 0x0600;
-				if(aud_res == AUD_PROBLEM) add_alarm(alarm_id);
-				else delete_alarm(alarm_id);
+		if(discrInp[3]==0) {
+			for(i=0;i<inpReg[0];++i) {
+				struct point_data* p = is_point_created(current_group-1,i);
+				if(p) {
+					enum audio_state aud_res = get_audio_state(p);
+					alarm_id = (i+1) | 0x0600;
+					if(aud_res == AUD_PROBLEM) {add_alarm(alarm_id);}
+					else delete_alarm(alarm_id);
+				}
 			}
 		}
-
-		// Питание
-		for(i=0;i<inpReg[0];++i) {
-			struct point_data* p = is_point_created(current_group-1,i);
-			if(p) {
-				alarm_id = (i+1) | 0x0400;
-				if(p->power<70) {alarm_flag=1;add_alarm(alarm_id);}
-				else delete_alarm(alarm_id);
-			}
-		}
-    }/*else {
-    	clear_alarms();
-    }*/
+    }
     alarm_led = alarm_flag;
 
-    if(is_sentence_ready_to_speak()==0 && check_audio_state==0) {
+    if(is_sentence_ready_to_speak()==0 && check_audio_state==0 && start_delay>START_DEAY_TIME) {
 		if(alarms_disappeared()) {
 			add_word_to_sentence(32);
 			add_number(current_group);
@@ -774,22 +789,24 @@ void StartDefaultTask(void const * argument)
 				case 0x14: // обрыв входа шлюза
 					add_word_to_sentence(28);
 					add_pause();
+					add_word_to_sentence(32);
+					add_number(current_group);
 					add_word_to_sentence(44);
 					add_pause();
 					add_word_to_sentence(30);
 					add_number(alarm_id&0xFF);
-					add_pause();
 					add_word_to_sentence(39);
 					set_sentence_ready_to_speak();
 					break;
 				case 0x15: // КЗ входа шлюза
 					add_word_to_sentence(28);
 					add_pause();
+					add_word_to_sentence(32);
+					add_number(current_group);
 					add_word_to_sentence(44);
 					add_pause();
 					add_word_to_sentence(30);
 					add_number(alarm_id&0xFF);
-					add_pause();
 					add_word_to_sentence(34);
 					set_sentence_ready_to_speak();
 					break;
