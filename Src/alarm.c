@@ -34,7 +34,7 @@ uint8_t alarms_disappeared() {
 static uint8_t find_alarm(uint16_t value) {
 	uint8_t i=0;
 	for(i=0;i<MAX_ALARM_CNT;++i) {
-		if(i>cur_pos) break;
+		if(i>=cur_pos) break;
 		if(alarms[i].num==value) {
 			return i+1;
 		}
@@ -95,7 +95,7 @@ void delete_alarm_group(uint16_t value) {
 uint16_t get_alarm() {
 	uint8_t i=0;
 	for(i=0;i<MAX_ALARM_CNT;++i) {
-		if(i>cur_pos) break;
+		if(i>=cur_pos) break;
 		if(alarms[i].speak_flag==0) {
 			alarms[i].speak_flag = 1;
 			return alarms[i].num;

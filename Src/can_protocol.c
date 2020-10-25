@@ -17,6 +17,13 @@
 #include "eeprom.h"
 #include "audio_out.h"
 
+extern struct {
+	uint8_t finished;
+	uint8_t activated;
+	uint16_t tmr;
+	uint8_t doing;
+}micr_check;
+
 extern uint16_t VirtAddVarTab[NB_OF_VAR];
 
 extern unsigned short holdReg[HoldingRegistersLimit];
@@ -332,6 +339,9 @@ void check_can_rx(uint8_t can_num) {
 					}
 					else
 					{
+						if(micr_check.activated==0) {
+							RxData[0] &= 0b11111100;
+						}
 						if(p_id->group_addr==current_group) {
 							discrInp[16+(p_id->point_addr-1)*11] = RxData[0]&0x01;		// исправность микрофона/динамика
 							discrInp[16+(p_id->point_addr-1)*11+1] = RxData[1]&0x01;	// di1

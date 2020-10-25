@@ -76,7 +76,7 @@ extern uint16_t packet_tmr;
 extern uint8_t net_addr;
 extern uint8_t current_group;
 
-uint16_t VirtAddVarTab[NB_OF_VAR]={1,2,3,4,5,6,7,8,9,10,11,12,13,14};
+uint16_t VirtAddVarTab[NB_OF_VAR]={1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
 
 extern unsigned short holdReg[HoldingRegistersLimit];
 
@@ -179,6 +179,7 @@ int main(void)
 	  holdReg[8] = 192;holdReg[9] = 168;holdReg[10] = 1;holdReg[11] = 1;
 	  holdReg[12] = 1; // число предпол подкл точек
 	  holdReg[13] = 1; // сетевой адрес
+	  holdReg[14] = 0;	// контроль неисправности микрофона/динамиков откл
 	  for(uint8_t i=0;i<NB_OF_VAR-1;i++) {
 		  EE_WriteVariable(VirtAddVarTab[i+1],  holdReg[i]);
 	  }
