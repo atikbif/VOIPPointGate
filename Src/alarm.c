@@ -22,6 +22,7 @@ static volatile uint8_t disappeared_flag = 0;
 
 
 static struct alarm alarms[MAX_ALARM_CNT];
+static struct alarm tmp_alarms[MAX_ALARM_CNT];
 
 uint8_t alarms_disappeared() {
 	if(disappeared_flag) {
@@ -111,6 +112,32 @@ void clear_alarms() {
 		alarms[i].speak_flag=0;
 	}
 	cur_pos=0;
+}
+
+void clear_alarms_excluding_type(uint8_t alarm_type) {
+	uint8_t i=0;
+	uint8_t tmp_pos = 0;
+	for(i=0;i<MAX_ALARM_CNT;++i) {
+		tmp_alarms[i].num = 0;
+		tmp_alarms[i].speak_flag=0;
+	}
+	for(i=0;i<MAX_ALARM_CNT;++i) {
+		if((alarms[i].num>>8)==alarm_type) {
+			tmp_alarms[tmp_pos].num = alarms[i].num;
+			tmp_alarms[tmp_pos].speak_flag = alarms[i].speak_flag;
+			tmp_pos++;
+		}
+		alarms[i].num = 0;
+		alarms[i].speak_flag=0;
+	}
+	cur_pos=0;
+	if(tmp_pos) {
+		for(i=0;i<tmp_pos;i++) {
+			alarms[i].num = tmp_alarms[i].num;
+			alarms[i].speak_flag = tmp_alarms[i].speak_flag;
+		}
+		cur_pos = tmp_pos;
+	}
 }
 
 void add_alarm(uint16_t value) {

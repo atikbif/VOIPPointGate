@@ -11,6 +11,7 @@
 #include <stdint.h>
 
 void clear_alarms();
+void clear_alarms_excluding_type(uint8_t alarm_type);
 void add_alarm(uint16_t value);
 void delete_alarm(uint16_t value);
 void delete_alarm_group(uint16_t value);

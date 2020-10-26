@@ -174,7 +174,8 @@ static void gate_algorithm() {
 
 	// отсдеживание переднего фронта di2
 	if(discrInp[3] && (prev_di2==0)) {
-		clear_alarms();
+		//clear_alarms();
+		clear_alarms_excluding_type(0x06);
 		micr_check.finished = 0;
 	}
 	prev_di2 = discrInp[3];
@@ -218,6 +219,7 @@ static void gate_algorithm() {
 			break;
 		case 6:
 			delete_alarm(0x1600);
+			delete_alarm_group(0x0600);
 			set_gate_out(1,1);
 			enable_prestart();
 			micr_check.doing = 1;

@@ -339,10 +339,10 @@ void check_can_rx(uint8_t can_num) {
 					}
 					else
 					{
-						if(micr_check.activated==0) {
-							RxData[0] &= 0b11111100;
-						}
 						if(p_id->group_addr==current_group) {
+							if(micr_check.activated==0) {
+								RxData[0] &= 0b11111100;
+							}
 							discrInp[16+(p_id->point_addr-1)*11] = RxData[0]&0x01;		// исправность микрофона/динамика
 							discrInp[16+(p_id->point_addr-1)*11+1] = RxData[1]&0x01;	// di1
 							discrInp[16+(p_id->point_addr-1)*11+2] = RxData[1]&0x02;	// обрыв
