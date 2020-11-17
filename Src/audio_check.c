@@ -7,6 +7,7 @@
 
 #include "point.h"
 #include "audio_check.h"
+#include "can_cmd.h"
 
 #define AUDIO_CHECK_WAIT_TIME	(10*3)
 #define AUDIO_CHECK_PAUSE_TIME	(10*2)
