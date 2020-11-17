@@ -781,6 +781,9 @@ void speak_alarms() {
 					set_sentence_ready_to_speak();
 					break;
 				case 0x13:// нет разрешения на запуск от входа 1
+					add_word_to_sentence(32);
+					add_number(current_group);
+					add_word_to_sentence(44);
 					add_word_to_sentence(52);
 					add_pause();
 					set_sentence_ready_to_speak();
